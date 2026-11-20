@@ -125,20 +125,18 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
     V_milestones, I_milestones = get_rc_series(mode, t_milestones, R, tau, V0, I0_mag)
 
     if is_charging:
-        df_milestones = pd.DataFrame({
-            "시정수 구간": [f"{k}τ ({(k * tau_ms):.2f} ms)" for k in k_values],
-            "전압 값 (V)": np.round(V_milestones, 4),
-            "전류 값 (A)": np.round(I_milestones, 6),
-            "전류 값 (mA)": np.round(I_milestones * 1e3, 3),
-        }).set_index("시정수 구간")
+        rate_col_name = "충전율 (%)"
+        rate_values = (V_milestones / V0 * 100.0) if V0 != 0 else np.zeros_like(V_milestones)
     else:
-        charge_rate = (V_milestones / V0 * 100.0) if V0 != 0 else np.zeros_like(V_milestones)
-        df_milestones = pd.DataFrame({
-            "시정수 구간": [f"{k}τ ({(k * tau_ms):.2f} ms)" for k in k_values],
-            "전압 값 (V)": np.round(V_milestones, 4),
-            "전류 값 (mA)": np.round(I_milestones * 1e3, 3),
-            "충전율 (%)": np.round(charge_rate, 2),
-        }).set_index("시정수 구간")
+        rate_col_name = "방전율 (%)"
+        rate_values = ((1.0 - V_milestones / V0) * 100.0) if V0 != 0 else np.zeros_like(V_milestones)
+
+    df_milestones = pd.DataFrame({
+        "시정수 구간": [f"{k}τ ({(k * tau_ms):.2f} ms)" for k in k_values],
+        "전압 값 (V)": np.round(V_milestones, 4),
+        "전류 값 (mA)": np.round(I_milestones * 1e3, 3),
+        rate_col_name: np.round(rate_values, 2),
+    }).set_index("시정수 구간")
 
     st.dataframe(df_milestones, use_container_width=True)
 
