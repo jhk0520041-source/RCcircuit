@@ -130,23 +130,7 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
 
     st.dataframe(df_milestones, use_container_width=True)
 
-    # 4. 일정 시간 간격의 데이터 표 (CSV 다운로드는 별도 탭에서 제공)
-    st.divider()
-    st.subheader(f"📊 {mode_kr} 시간별 데이터 표")
-
-    t_table = np.linspace(0, t_max, num_points)
-    V_table, I_table = get_rc_series(mode, t_table, R, tau, V0, I0)
-
-    df_voltage = pd.DataFrame({
-        "시간 (s)": np.round(t_table, 4),
-        "전압 (V)": np.round(V_table, 4)
-    })
-
-    df_current = pd.DataFrame({
-        "시간 (s)": np.round(t_table, 4),
-        "전류 (A)": np.round(I_table, 6)
-    })
-
+    
     col1, col2 = st.columns(2)
 
     with col1:
