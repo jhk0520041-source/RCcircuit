@@ -30,32 +30,36 @@ def parse_positive_float(raw_value, fallback, label, allow_zero=False):
 
 
 def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool, num_points: int):
-    """'charging' 또는 'discharging' 모드에 맞춰 그래프, 표, CSV 다운로드를 렌더링합니다."""
+    """'charging' 또는 'discharging' 모드에 맞춰 그래프, 핵심 수치, 표, CSV 다운로드를 렌더링합니다."""
     is_charging = mode == "charging"
     mode_prefix = "charging" if is_charging else "discharging"
     mode_kr = "충전" if is_charging else "방전"
 
     # 물리 공식 계산 (그래프용 고해상도 데이터)
     C = C_micro * 1e-6
-    tau = R * C
+    tau = R * C              # 시정수 (s)
+    tau_ms = tau * 1e3       # 시정수 (ms)
+    I0 = V0 / R              # 초기 전류 (A)
+    I0_mA = I0 * 1e3         # 초기 전류 (mA)
+
     t_max = 10 if fix_axis else 5 * tau
     t = np.linspace(0, t_max, 1000)
 
     if is_charging:
         V_t = V0 * (1 - np.exp(-t / tau))
-        I_t = (V0 / R) * np.exp(-t / tau)
+        I_t = I0 * np.exp(-t / tau)
         v_ref_y = V0 * 0.632
         v_ref_label = "63.2% V0"
-        i_ref_y = (V0 / R) * 0.368
+        i_ref_y = I0 * 0.368
         i_ref_label = "36.8% I0"
         v_title = "Voltage over Time (Charging)"
         i_title = "Current over Time (Charging)"
     else:
         V_t = V0 * np.exp(-t / tau)
-        I_t = -(V0 / R) * np.exp(-t / tau)
+        I_t = -I0 * np.exp(-t / tau)
         v_ref_y = V0 * 0.368
         v_ref_label = "36.8% V0"
-        i_ref_y = -(V0 / R) * 0.368
+        i_ref_y = -I0 * 0.368
         i_ref_label = "-36.8% I0"
         v_title = "Voltage over Time (Discharging)"
         i_title = "Current over Time (Discharging)"
@@ -87,17 +91,34 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
     st.pyplot(fig)
     plt.close(fig)
 
-    # 2. 일정 시간 간격의 표 및 CSV 다운로드 버튼 생성
+    # 2. 그래프 하단 핵심 회로 값 요약 (시정수 ms, 초기 전류 mA)
+    metric_col1, metric_col2 = st.columns(2)
+    with metric_col1:
+        st.metric(
+            label="시정수 τ = RC",
+            value=f"{tau_ms:.2f} ms",
+            delta=f"{tau:.4f} s (5τ: {5 * tau_ms:.1f} ms)",
+            delta_color="off"
+        )
+    with metric_col2:
+        st.metric(
+            label="초기 전류 I₀ = V₀ / R",
+            value=f"{I0_mA:.2f} mA",
+            delta=f"{I0:.6f} A",
+            delta_color="off"
+        )
+
+    # 3. 일정 시간 간격의 표 및 CSV 다운로드 버튼 생성
     st.divider()
     st.subheader(f"📊 {mode_kr} 시간별 데이터 표 및 다운로드")
 
     t_table = np.linspace(0, t_max, num_points)
     if is_charging:
         V_table = V0 * (1 - np.exp(-t_table / tau))
-        I_table = (V0 / R) * np.exp(-t_table / tau)
+        I_table = I0 * np.exp(-t_table / tau)
     else:
         V_table = V0 * np.exp(-t_table / tau)
-        I_table = -(V0 / R) * np.exp(-t_table / tau)
+        I_table = -I0 * np.exp(-t_table / tau)
 
     df_voltage = pd.DataFrame({
         "시간 (s)": np.round(t_table, 4),
