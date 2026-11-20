@@ -29,13 +29,23 @@ def parse_positive_float(raw_value, fallback, label, allow_zero=False):
         return float(fallback)
 
 
+def get_rc_series(mode: str, t_arr: np.ndarray, R: float, tau: float, V0: float, I0: float):
+    """충전 또는 방전 모드에 따라 시간 배열 t_arr에 대한 전압 V(t)와 전류 I(t)를 계산합니다."""
+    if mode == "charging":
+        V_arr = V0 * (1 - np.exp(-t_arr / tau))
+        I_arr = I0 * np.exp(-t_arr / tau)
+    else:
+        V_arr = V0 * np.exp(-t_arr / tau)
+        I_arr = -I0 * np.exp(-t_arr / tau)
+    return V_arr, I_arr
+
+
 def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool, num_points: int):
-    """'charging' 또는 'discharging' 모드에 맞춰 그래프, 핵심 수치, 표, CSV 다운로드를 렌더링합니다."""
+    """'charging' 또는 'discharging' 모드에 맞춰 그래프, 핵심 지표, 1τ~5τ 마일스톤 표, 데이터 표를 렌더링합니다."""
     is_charging = mode == "charging"
-    mode_prefix = "charging" if is_charging else "discharging"
     mode_kr = "충전" if is_charging else "방전"
 
-    # 물리 공식 계산 (그래프용 고해상도 데이터)
+    # 물리 공식 계산
     C = C_micro * 1e-6
     tau = R * C              # 시정수 (s)
     tau_ms = tau * 1e3       # 시정수 (ms)
@@ -44,10 +54,9 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
 
     t_max = 10 if fix_axis else 5 * tau
     t = np.linspace(0, t_max, 1000)
+    V_t, I_t = get_rc_series(mode, t, R, tau, V0, I0)
 
     if is_charging:
-        V_t = V0 * (1 - np.exp(-t / tau))
-        I_t = I0 * np.exp(-t / tau)
         v_ref_y = V0 * 0.632
         v_ref_label = "63.2% V0"
         i_ref_y = I0 * 0.368
@@ -55,8 +64,6 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
         v_title = "Voltage over Time (Charging)"
         i_title = "Current over Time (Charging)"
     else:
-        V_t = V0 * np.exp(-t / tau)
-        I_t = -I0 * np.exp(-t / tau)
         v_ref_y = V0 * 0.368
         v_ref_label = "36.8% V0"
         i_ref_y = -I0 * 0.368
@@ -64,12 +71,12 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
         v_title = "Voltage over Time (Discharging)"
         i_title = "Current over Time (Discharging)"
 
-    # 1. 웹 화면에 그래프 띄우기
+    # 1. 웹 화면에 그래프 띄우기 (그래프 내 시정수 표시는 ms 단위)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
 
     # 전압 그래프 (왼쪽)
     ax1.plot(t, V_t, label="Voltage $V(t)$", color="blue", linewidth=2)
-    ax1.axvline(x=tau, color="red", linestyle="--", label=f"Tau = {tau:.4f}s")
+    ax1.axvline(x=tau, color="red", linestyle="--", label=f"Tau = {tau_ms:.2f}ms")
     ax1.axhline(y=v_ref_y, color="green", linestyle=":", label=v_ref_label)
     ax1.set_title(v_title)
     ax1.set_xlabel("Time (s)")
@@ -79,7 +86,7 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
 
     # 전류 그래프 (오른쪽)
     ax2.plot(t, I_t, label="Current $I(t)$", color="orange", linewidth=2)
-    ax2.axvline(x=tau, color="red", linestyle="--", label=f"Tau = {tau:.4f}s")
+    ax2.axvline(x=tau, color="red", linestyle="--", label=f"Tau = {tau_ms:.2f}ms")
     ax2.axhline(y=i_ref_y, color="green", linestyle=":", label=i_ref_label)
     ax2.set_title(i_title)
     ax2.set_xlabel("Time (s)")
@@ -108,17 +115,27 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
             delta_color="off"
         )
 
-    # 3. 일정 시간 간격의 표 및 CSV 다운로드 버튼 생성
+    # 3. metric_columns 하단: 1τ ~ 5τ 주요 마일스톤 비교 표
+    st.subheader(f"⏱️ {mode_kr} 주요 시정수 마일스톤 (1τ ~ 5τ)")
+    k_values = np.arange(1, 6)
+    t_milestones = k_values * tau
+    V_milestones, I_milestones = get_rc_series(mode, t_milestones, R, tau, V0, I0)
+
+    df_milestones = pd.DataFrame({
+        "시정수 구간": [f"{k}τ ({(k * tau_ms):.2f} ms)" for k in k_values],
+        "전압 값 (V)": np.round(V_milestones, 4),
+        "전류 값 (A)": np.round(I_milestones, 6),
+        "전류 값 (mA)": np.round(I_milestones * 1e3, 3),
+    }).set_index("시정수 구간")
+
+    st.dataframe(df_milestones, use_container_width=True)
+
+    # 4. 일정 시간 간격의 데이터 표 (CSV 다운로드는 별도 탭에서 제공)
     st.divider()
-    st.subheader(f"📊 {mode_kr} 시간별 데이터 표 및 다운로드")
+    st.subheader(f"📊 {mode_kr} 시간별 데이터 표")
 
     t_table = np.linspace(0, t_max, num_points)
-    if is_charging:
-        V_table = V0 * (1 - np.exp(-t_table / tau))
-        I_table = I0 * np.exp(-t_table / tau)
-    else:
-        V_table = V0 * np.exp(-t_table / tau)
-        I_table = -I0 * np.exp(-t_table / tau)
+    V_table, I_table = get_rc_series(mode, t_table, R, tau, V0, I0)
 
     df_voltage = pd.DataFrame({
         "시간 (s)": np.round(t_table, 4),
@@ -135,26 +152,64 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
     with col1:
         st.markdown(f"**시간 - 전압 데이터 ({mode_kr})**")
         st.dataframe(df_voltage, use_container_width=True, height=250)
-        csv_v = df_voltage.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            label=f"📥 {mode_kr} 시간-전압 CSV 다운로드",
-            data=csv_v,
-            file_name=f"rc_{mode_prefix}_voltage_R{R:g}_C{C_micro:g}.csv",
-            mime="text/csv",
-            key=f"dl_v_{mode_prefix}"
-        )
 
     with col2:
         st.markdown(f"**시간 - 전류 데이터 ({mode_kr})**")
         st.dataframe(df_current, use_container_width=True, height=250)
-        csv_i = df_current.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            label=f"📥 {mode_kr} 시간-전류 CSV 다운로드",
-            data=csv_i,
-            file_name=f"rc_{mode_prefix}_current_R{R:g}_C{C_micro:g}.csv",
-            mime="text/csv",
-            key=f"dl_i_{mode_prefix}"
-        )
+
+
+def render_csv_download_tab(R: float, C_micro: float, V0: float, fix_axis: bool, num_points: int):
+    """충전 및 방전 시간-전압 / 시간-전류 CSV 다운로드 탭을 렌더링합니다."""
+    st.subheader("📥 CSV 파일 다운로드")
+    st.write(
+        f"현재 적용된 설정(**R = {R:g} Ω**, **C = {C_micro:g} μF**, **V0 = {V0:g} V**, "
+        f"**분할 개수 = {num_points}개**)을 기준으로 CSV 파일을 내려받을 수 있습니다."
+    )
+
+    C = C_micro * 1e-6
+    tau = R * C
+    t_max = 10 if fix_axis else 5 * tau
+    t_table = np.linspace(0, t_max, num_points)
+
+    for mode, title_kr, prefix in [
+        ("charging", "충전 (Charging)", "charging"),
+        ("discharging", "방전 (Discharging)", "discharging"),
+    ]:
+        V_table, I_table = get_rc_series(mode, t_table, R, tau, V0, V0 / R)
+
+        df_v = pd.DataFrame({
+            "시간 (s)": np.round(t_table, 4),
+            "전압 (V)": np.round(V_table, 4)
+        })
+        df_i = pd.DataFrame({
+            "시간 (s)": np.round(t_table, 4),
+            "전류 (A)": np.round(I_table, 6)
+        })
+
+        st.markdown(f"### {title_kr}")
+        c1, c2 = st.columns(2)
+
+        with c1:
+            csv_v = df_v.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                label=f"📥 {title_kr} 시간-전압 CSV 다운로드",
+                data=csv_v,
+                file_name=f"rc_{prefix}_voltage_R{R:g}_C{C_micro:g}.csv",
+                mime="text/csv",
+                key=f"tab_dl_v_{prefix}",
+                use_container_width=True
+            )
+
+        with c2:
+            csv_i = df_i.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                label=f"📥 {title_kr} 시간-전류 CSV 다운로드",
+                data=csv_i,
+                file_name=f"rc_{prefix}_current_R{R:g}_C{C_micro:g}.csv",
+                mime="text/csv",
+                key=f"tab_dl_i_{prefix}",
+                use_container_width=True
+            )
 
 
 # 적용된 파라미터 초기값 설정 (세션 상태)
@@ -239,11 +294,18 @@ st.caption(
     f"표 분할 개수: **{num_points}개**"
 )
 
-# 3. 충전 / 방전 탭 구성
-tab_charge, tab_discharge = st.tabs(["⚡ 충전 (Charging)", "🔋 방전 (Discharging)"])
+# 3. 충전 / 방전 / CSV 파일 다운로드 3개 탭 구성
+tab_charge, tab_discharge, tab_csv = st.tabs([
+    "⚡ 충전",
+    "🔋 방전",
+    "📥 CSV 파일 다운로드"
+])
 
 with tab_charge:
     render_rc_tab("charging", R, C_micro, V0, fix_axis, num_points)
 
 with tab_discharge:
     render_rc_tab("discharging", R, C_micro, V0, fix_axis, num_points)
+
+with tab_csv:
+    render_csv_download_tab(R, C_micro, V0, fix_axis, num_points)
