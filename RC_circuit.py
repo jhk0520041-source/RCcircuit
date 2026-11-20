@@ -131,16 +131,7 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
     st.dataframe(df_milestones, use_container_width=True)
 
     
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown(f"**시간 - 전압 데이터 ({mode_kr})**")
-        st.dataframe(df_voltage, use_container_width=True, height=250)
-
-    with col2:
-        st.markdown(f"**시간 - 전류 데이터 ({mode_kr})**")
-        st.dataframe(df_current, use_container_width=True, height=250)
-
+   
 
 def render_csv_download_tab(R: float, C_micro: float, V0: float, fix_axis: bool, num_points: int):
     """충전 및 방전 시간-전압 / 시간-전류 CSV 다운로드 탭을 렌더링합니다."""
