@@ -59,9 +59,8 @@ def render_rc_tab(
     V_init: float,
     use_v_init: bool,
     fix_axis: bool,
-    num_points: int,
 ):
-    """'charging' 또는 'discharging' 모드에 맞춰 그래프, 핵심 지표, 1τ~5τ 마일스톤 표, 데이터 표를 렌더링합니다."""
+    """'charging' 또는 'discharging' 모드에 맞춰 그래프, 핵심 지표, 1τ~5τ 마일스톤 표를 렌더링합니다."""
     is_charging = mode == "charging"
     mode_kr = "충전" if is_charging else "방전"
 
@@ -161,14 +160,14 @@ def render_rc_tab(
 
     st.dataframe(df_milestones, use_container_width=True)
 
-   def render_csv_download_tab(
+
+def render_csv_download_tab(
     R: float,
     C_micro: float,
     V_supply: float,
     V_init: float,
     use_v_init: bool,
     fix_axis: bool,
-    num_points: int,
 ):
     """충전 및 방전 시간-전압 / 시간-전류 CSV 다운로드 탭을 렌더링합니다."""
     st.subheader("📥 CSV 파일 다운로드")
@@ -177,13 +176,13 @@ def render_rc_tab(
     )
     if use_v_init:
         base_desc += f", **초기전압 = {V_init:.4g} V**"
-    base_desc += f", **분할 개수 = {num_points}개**)을 기준으로 CSV 파일을 내려받을 수 있습니다."
+    base_desc += ")을 기준으로 CSV 파일을 내려받을 수 있습니다."
     st.write(base_desc)
 
     C = C_micro * 1e-6
     tau = R * C
     t_max = 10 if fix_axis else 5 * tau
-    t_table = np.linspace(0, t_max, num_points)
+    t_table = np.linspace(0, t_max, 100)
 
     for mode, title_kr, prefix in [
         ("charging", "충전 (Charging)", "charging"),
@@ -236,7 +235,6 @@ if "applied_params" not in st.session_state:
         "R_internal": 0.0,
         "V_init": 0.0,
         "fix_axis": False,
-        "num_points": 20,
     }
 
 # 2. 사이드바(입력 창) 만들기 - '적용하기' 버튼을 누르기 전까지는 임시 입력값으로만 유지
@@ -289,6 +287,7 @@ if use_v_init_input:
         help="내부저항 값을 Ω 단위로 입력하세요 (예: 100). 초기 전압 V_init = 인가전압 × R / (R + R_int) 로 계산됩니다."
     )
 
+fix_axis = st.sidebar.checkbox("시간축 고정 (0~10초)", value=st.session_state.applied_params["fix_axis"])
 
 st.sidebar.divider()
 
@@ -313,7 +312,6 @@ if st.sidebar.button("적용하기", type="primary", use_container_width=True):
         "R_internal": parsed_R_int,
         "V_init": calculated_V_init,
         "fix_axis": fix_axis,
-        "num_points": num_points,
     }
 
 # 현재 시뮬레이션에 실제 반영된 값 불러오기
@@ -324,7 +322,6 @@ use_v_init = st.session_state.applied_params["use_v_init"]
 R_internal = st.session_state.applied_params["R_internal"]
 V_init = st.session_state.applied_params["V_init"]
 fix_axis = st.session_state.applied_params["fix_axis"]
-num_points = st.session_state.applied_params["num_points"]
 
 # 현재 적용된 변수 값 안내 (내부저항 입력 적용 시에만 인가전압과 초기전압을 함께 표기)
 if use_v_init and R_internal > 0:
@@ -336,8 +333,7 @@ else:
 
 st.caption(
     f"현재 적용된 파라미터 — 저항 R: **{R:g} Ω**, 전기용량 C: **{C_micro:g} μF**, "
-    f"{voltage_caption}, 시간축 고정: **{'ON (0~10초)' if fix_axis else 'OFF (0~5τ)'}**, "
-    f"표 분할 개수: **{num_points}개**"
+    f"{voltage_caption}, 시간축 고정: **{'ON (0~10초)' if fix_axis else 'OFF (0~5τ)'}**"
 )
 
 # 3. 충전 / 방전 / CSV 파일 다운로드 3개 탭 구성
@@ -348,10 +344,10 @@ tab_charge, tab_discharge, tab_csv = st.tabs([
 ])
 
 with tab_charge:
-    render_rc_tab("charging", R, C_micro, V_supply, V_init, use_v_init, fix_axis, num_points)
+    render_rc_tab("charging", R, C_micro, V_supply, V_init, use_v_init, fix_axis)
 
 with tab_discharge:
-    render_rc_tab("discharging", R, C_micro, V_supply, V_init, use_v_init, fix_axis, num_points)
+    render_rc_tab("discharging", R, C_micro, V_supply, V_init, use_v_init, fix_axis)
 
 with tab_csv:
-    render_csv_download_tab(R, C_micro, V_supply, V_init, use_v_init, fix_axis, num_points)
+    render_csv_download_tab(R, C_micro, V_supply, V_init, use_v_init, fix_axis)
