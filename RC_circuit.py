@@ -29,14 +29,14 @@ def parse_positive_float(raw_value, fallback, label, allow_zero=False):
         return float(fallback)
 
 
-def get_rc_series(mode: str, t_arr: np.ndarray, R: float, tau: float, V0: float, I0: float):
+def get_rc_series(mode: str, t_arr: np.ndarray, R: float, tau: float, V0: float, I0_mag: float):
     """충전 또는 방전 모드에 따라 시간 배열 t_arr에 대한 전압 V(t)와 전류 I(t)를 계산합니다."""
     if mode == "charging":
         V_arr = V0 * (1 - np.exp(-t_arr / tau))
-        I_arr = I0 * np.exp(-t_arr / tau)
+        I_arr = I0_mag * np.exp(-t_arr / tau)
     else:
         V_arr = V0 * np.exp(-t_arr / tau)
-        I_arr = -I0 * np.exp(-t_arr / tau)
+        I_arr = -I0_mag * np.exp(-t_arr / tau)
     return V_arr, I_arr
 
 
@@ -49,27 +49,30 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
     C = C_micro * 1e-6
     tau = R * C              # 시정수 (s)
     tau_ms = tau * 1e3       # 시정수 (ms)
-    I0 = V0 / R              # 초기 전류 (A)
-    I0_mA = I0 * 1e3         # 초기 전류 (mA)
-
-    t_max = 10 if fix_axis else 5 * tau
-    t = np.linspace(0, t_max, 1000)
-    V_t, I_t = get_rc_series(mode, t, R, tau, V0, I0)
+    I0_mag = V0 / R          # 초기 전류 크기 (A)
 
     if is_charging:
+        I0_signed = I0_mag
+        I0_mA_signed = I0_mag * 1e3
         v_ref_y = V0 * 0.632
         v_ref_label = "63.2% V0"
-        i_ref_y = I0 * 0.368
+        i_ref_y = I0_mag * 0.368
         i_ref_label = "36.8% I0"
         v_title = "Voltage over Time (Charging)"
         i_title = "Current over Time (Charging)"
     else:
+        I0_signed = -I0_mag
+        I0_mA_signed = -I0_mag * 1e3
         v_ref_y = V0 * 0.368
         v_ref_label = "36.8% V0"
-        i_ref_y = -I0 * 0.368
+        i_ref_y = -I0_mag * 0.368
         i_ref_label = "-36.8% I0"
         v_title = "Voltage over Time (Discharging)"
         i_title = "Current over Time (Discharging)"
+
+    t_max = 10 if fix_axis else 5 * tau
+    t = np.linspace(0, t_max, 1000)
+    V_t, I_t = get_rc_series(mode, t, R, tau, V0, I0_mag)
 
     # 1. 웹 화면에 그래프 띄우기 (그래프 내 시정수 표시는 ms 단위)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
@@ -109,9 +112,9 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
         )
     with metric_col2:
         st.metric(
-            label="초기 전류 I₀ = V₀ / R",
-            value=f"{I0_mA:.2f} mA",
-            delta=f"{I0:.6f} A",
+            label="초기 전류 I₀",
+            value=f"{I0_mA_signed:.2f} mA",
+            delta=f"{I0_signed:.6f} A",
             delta_color="off"
         )
 
@@ -119,19 +122,53 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
     st.subheader(f"⏱️ {mode_kr} 주요 시정수 마일스톤 (1τ ~ 5τ)")
     k_values = np.arange(1, 6)
     t_milestones = k_values * tau
-    V_milestones, I_milestones = get_rc_series(mode, t_milestones, R, tau, V0, I0)
+    V_milestones, I_milestones = get_rc_series(mode, t_milestones, R, tau, V0, I0_mag)
 
-    df_milestones = pd.DataFrame({
-        "시정수 구간": [f"{k}τ ({(k * tau_ms):.2f} ms)" for k in k_values],
-        "전압 값 (V)": np.round(V_milestones, 4),
-        "전류 값 (A)": np.round(I_milestones, 6),
-        "전류 값 (mA)": np.round(I_milestones * 1e3, 3),
-    }).set_index("시정수 구간")
+    if is_charging:
+        df_milestones = pd.DataFrame({
+            "시정수 구간": [f"{k}τ ({(k * tau_ms):.2f} ms)" for k in k_values],
+            "전압 값 (V)": np.round(V_milestones, 4),
+            "전류 값 (A)": np.round(I_milestones, 6),
+            "전류 값 (mA)": np.round(I_milestones * 1e3, 3),
+        }).set_index("시정수 구간")
+    else:
+        charge_rate = (V_milestones / V0 * 100.0) if V0 != 0 else np.zeros_like(V_milestones)
+        df_milestones = pd.DataFrame({
+            "시정수 구간": [f"{k}τ ({(k * tau_ms):.2f} ms)" for k in k_values],
+            "전압 값 (V)": np.round(V_milestones, 4),
+            "전류 값 (mA)": np.round(I_milestones * 1e3, 3),
+            "충전율 (%)": np.round(charge_rate, 2),
+        }).set_index("시정수 구간")
 
     st.dataframe(df_milestones, use_container_width=True)
 
-    
-   
+    # 4. 일정 시간 간격의 데이터 표 (CSV 다운로드는 별도 탭에서 제공)
+    st.divider()
+    st.subheader(f"📊 {mode_kr} 시간별 데이터 표")
+
+    t_table = np.linspace(0, t_max, num_points)
+    V_table, I_table = get_rc_series(mode, t_table, R, tau, V0, I0_mag)
+
+    df_voltage = pd.DataFrame({
+        "시간 (s)": np.round(t_table, 4),
+        "전압 (V)": np.round(V_table, 4)
+    })
+
+    df_current = pd.DataFrame({
+        "시간 (s)": np.round(t_table, 4),
+        "전류 (A)": np.round(I_table, 6)
+    })
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown(f"**시간 - 전압 데이터 ({mode_kr})**")
+        st.dataframe(df_voltage, use_container_width=True, height=250)
+
+    with col2:
+        st.markdown(f"**시간 - 전류 데이터 ({mode_kr})**")
+        st.dataframe(df_current, use_container_width=True, height=250)
+
 
 def render_csv_download_tab(R: float, C_micro: float, V0: float, fix_axis: bool, num_points: int):
     """충전 및 방전 시간-전압 / 시간-전류 CSV 다운로드 탭을 렌더링합니다."""
