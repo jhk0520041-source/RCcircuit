@@ -29,18 +29,38 @@ def parse_positive_float(raw_value, fallback, label, allow_zero=False):
         return float(fallback)
 
 
-def get_rc_series(mode: str, t_arr: np.ndarray, R: float, tau: float, V0: float, I0_mag: float):
+def get_rc_series(
+    mode: str,
+    t_arr: np.ndarray,
+    R: float,
+    tau: float,
+    V_supply: float,
+    V_init: float,
+    use_v_init: bool,
+):
     """충전 또는 방전 모드에 따라 시간 배열 t_arr에 대한 전압 V(t)와 전류 I(t)를 계산합니다."""
     if mode == "charging":
-        V_arr = V0 * (1 - np.exp(-t_arr / tau))
-        I_arr = I0_mag * np.exp(-t_arr / tau)
+        # V_init에서 시작해 인가전압 V_supply로 수렴: V(t) = V_supply + (V_init - V_supply) * exp(-t/tau)
+        V_arr = V_supply + (V_init - V_supply) * np.exp(-t_arr / tau)
+        I_arr = ((V_supply - V_init) / R) * np.exp(-t_arr / tau)
     else:
-        V_arr = V0 * np.exp(-t_arr / tau)
-        I_arr = -I0_mag * np.exp(-t_arr / tau)
+        # 초기 전압(체크 시 V_init, 미체크 시 V_supply)에서 0V로 방전
+        V_start = V_init if use_v_init else V_supply
+        V_arr = V_start * np.exp(-t_arr / tau)
+        I_arr = -(V_start / R) * np.exp(-t_arr / tau)
     return V_arr, I_arr
 
 
-def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool, num_points: int):
+def render_rc_tab(
+    mode: str,
+    R: float,
+    C_micro: float,
+    V_supply: float,
+    V_init: float,
+    use_v_init: bool,
+    fix_axis: bool,
+    num_points: int,
+):
     """'charging' 또는 'discharging' 모드에 맞춰 그래프, 핵심 지표, 1τ~5τ 마일스톤 표, 데이터 표를 렌더링합니다."""
     is_charging = mode == "charging"
     mode_kr = "충전" if is_charging else "방전"
@@ -49,30 +69,30 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
     C = C_micro * 1e-6
     tau = R * C              # 시정수 (s)
     tau_ms = tau * 1e3       # 시정수 (ms)
-    I0_mag = V0 / R          # 초기 전류 크기 (A)
 
     if is_charging:
-        I0_signed = I0_mag
-        I0_mA_signed = I0_mag * 1e3
-        v_ref_y = V0 * 0.632
-        v_ref_label = "63.2% V0"
-        i_ref_y = I0_mag * 0.368
+        I0_signed = (V_supply - V_init) / R
+        I0_mA_signed = I0_signed * 1e3
+        v_ref_y = V_init + (V_supply - V_init) * 0.632
+        v_ref_label = f"1τ V ({v_ref_y:.2f}V)"
+        i_ref_y = I0_signed * 0.368
         i_ref_label = "36.8% I0"
         v_title = "Voltage over Time (Charging)"
         i_title = "Current over Time (Charging)"
     else:
-        I0_signed = -I0_mag
-        I0_mA_signed = -I0_mag * 1e3
-        v_ref_y = V0 * 0.368
-        v_ref_label = "36.8% V0"
-        i_ref_y = -I0_mag * 0.368
-        i_ref_label = "-36.8% I0"
+        V_start = V_init if use_v_init else V_supply
+        I0_signed = -(V_start / R)
+        I0_mA_signed = I0_signed * 1e3
+        v_ref_y = V_start * 0.368
+        v_ref_label = f"36.8% V_start ({v_ref_y:.2f}V)"
+        i_ref_y = I0_signed * 0.368
+        i_ref_label = "36.8% I0"
         v_title = "Voltage over Time (Discharging)"
         i_title = "Current over Time (Discharging)"
 
     t_max = 10 if fix_axis else 5 * tau
     t = np.linspace(0, t_max, 1000)
-    V_t, I_t = get_rc_series(mode, t, R, tau, V0, I0_mag)
+    V_t, I_t = get_rc_series(mode, t, R, tau, V_supply, V_init, use_v_init)
 
     # 1. 웹 화면에 그래프 띄우기 (그래프 내 시정수 표시는 ms 단위)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
@@ -112,7 +132,7 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
         )
     with metric_col2:
         st.metric(
-            label="초기 전류 I₀",
+            label="초기 전류 I(0)",
             value=f"{I0_mA_signed:.2f} mA",
             delta=f"{I0_signed:.6f} A",
             delta_color="off"
@@ -122,14 +142,15 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
     st.subheader(f"⏱️ {mode_kr} 주요 시정수 마일스톤 (1τ ~ 5τ)")
     k_values = np.arange(1, 6)
     t_milestones = k_values * tau
-    V_milestones, I_milestones = get_rc_series(mode, t_milestones, R, tau, V0, I0_mag)
+    V_milestones, I_milestones = get_rc_series(mode, t_milestones, R, tau, V_supply, V_init, use_v_init)
 
     if is_charging:
         rate_col_name = "충전율 (%)"
-        rate_values = (V_milestones / V0 * 100.0) if V0 != 0 else np.zeros_like(V_milestones)
+        rate_values = (V_milestones / V_supply * 100.0) if V_supply != 0 else np.zeros_like(V_milestones)
     else:
         rate_col_name = "방전율 (%)"
-        rate_values = ((1.0 - V_milestones / V0) * 100.0) if V0 != 0 else np.zeros_like(V_milestones)
+        V_start = V_init if use_v_init else V_supply
+        rate_values = ((1.0 - V_milestones / V_start) * 100.0) if V_start != 0 else np.zeros_like(V_milestones)
 
     df_milestones = pd.DataFrame({
         "시정수 구간": [f"{k}τ ({(k * tau_ms):.2f} ms)" for k in k_values],
@@ -140,14 +161,24 @@ def render_rc_tab(mode: str, R: float, C_micro: float, V0: float, fix_axis: bool
 
     st.dataframe(df_milestones, use_container_width=True)
 
-   
-def render_csv_download_tab(R: float, C_micro: float, V0: float, fix_axis: bool, num_points: int):
+   def render_csv_download_tab(
+    R: float,
+    C_micro: float,
+    V_supply: float,
+    V_init: float,
+    use_v_init: bool,
+    fix_axis: bool,
+    num_points: int,
+):
     """충전 및 방전 시간-전압 / 시간-전류 CSV 다운로드 탭을 렌더링합니다."""
     st.subheader("📥 CSV 파일 다운로드")
-    st.write(
-        f"현재 적용된 설정(**R = {R:g} Ω**, **C = {C_micro:g} μF**, **V0 = {V0:g} V**, "
-        f"**분할 개수 = {num_points}개**)을 기준으로 CSV 파일을 내려받을 수 있습니다."
+    base_desc = (
+        f"현재 적용된 설정(**R = {R:g} Ω**, **C = {C_micro:g} μF**, **인가전압 = {V_supply:g} V**"
     )
+    if use_v_init:
+        base_desc += f", **초기전압 = {V_init:.4g} V**"
+    base_desc += f", **분할 개수 = {num_points}개**)을 기준으로 CSV 파일을 내려받을 수 있습니다."
+    st.write(base_desc)
 
     C = C_micro * 1e-6
     tau = R * C
@@ -158,7 +189,7 @@ def render_csv_download_tab(R: float, C_micro: float, V0: float, fix_axis: bool,
         ("charging", "충전 (Charging)", "charging"),
         ("discharging", "방전 (Discharging)", "discharging"),
     ]:
-        V_table, I_table = get_rc_series(mode, t_table, R, tau, V0, V0 / R)
+        V_table, I_table = get_rc_series(mode, t_table, R, tau, V_supply, V_init, use_v_init)
 
         df_v = pd.DataFrame({
             "시간 (s)": np.round(t_table, 4),
@@ -200,7 +231,10 @@ if "applied_params" not in st.session_state:
     st.session_state.applied_params = {
         "R": 1000.0,
         "C_micro": 500.0,
-        "V0": 5.0,
+        "V_supply": 5.0,
+        "use_v_init": False,
+        "R_internal": 0.0,
+        "V_init": 0.0,
         "fix_axis": False,
         "num_points": 20,
     }
@@ -228,24 +262,33 @@ raw_C = st.sidebar.selectbox(
     help="목록에서 고르거나 원하는 전기용량(μF)을 직접 입력한 뒤 Enter를 누르세요."
 )
 
-# 인가전압 V0: 1 V 단위 선택 + 직접 입력 허용
+# 인가전압: 1 V 단위 선택 + 직접 입력 허용
 v_options = [float(i) for i in range(1, 13)]
-raw_V0 = st.sidebar.selectbox(
-    "인가전압 V0 (V) - 선택 또는 직접 입력",
+raw_V_supply = st.sidebar.selectbox(
+    "인가전압 (V) - 선택 또는 직접 입력",
     options=v_options,
     index=4,  # 기본값 5.0
     accept_new_options=True,
     help="목록에서 고르거나 원하는 인가전압(V)을 직접 입력한 뒤 Enter를 누르세요."
 )
 
-fix_axis = st.sidebar.checkbox("시간축 고정 (0~10초)", value=st.session_state.applied_params["fix_axis"])
-num_points = st.sidebar.slider(
-    "표 데이터 분할 개수",
-    min_value=10,
-    max_value=100,
-    value=st.session_state.applied_params["num_points"],
-    step=5
+# 초기 전압 V0 != 0 체크박스 및 조건부 내부저항 입력창
+use_v_init_input = st.sidebar.checkbox(
+    "초기 전압 V0!=0",
+    value=st.session_state.applied_params["use_v_init"],
+    help="체크하면 내부저항을 입력받아 초기 전압을 계산합니다."
 )
+
+raw_R_internal = None
+if use_v_init_input:
+    raw_R_internal = st.sidebar.text_input(
+        "내부저항 R_int (Ω)",
+        value=str(int(st.session_state.applied_params["R_internal"]))
+        if st.session_state.applied_params["R_internal"] > 0
+        else "100",
+        help="내부저항 값을 Ω 단위로 입력하세요 (예: 100). 초기 전압 V_init = 인가전압 × R / (R + R_int) 로 계산됩니다."
+    )
+
 
 st.sidebar.divider()
 
@@ -253,12 +296,22 @@ st.sidebar.divider()
 if st.sidebar.button("적용하기", type="primary", use_container_width=True):
     parsed_R = parse_positive_float(raw_R, fallback=1000.0, label="저항 R")
     parsed_C = parse_positive_float(raw_C, fallback=500.0, label="전기용량 C")
-    parsed_V0 = parse_positive_float(raw_V0, fallback=5.0, label="인가전압 V0", allow_zero=True)
+    parsed_V_supply = parse_positive_float(raw_V_supply, fallback=5.0, label="인가전압", allow_zero=True)
+
+    if use_v_init_input:
+        parsed_R_int = parse_positive_float(raw_R_internal, fallback=100.0, label="내부저항", allow_zero=False)
+        calculated_V_init = parsed_V_supply * (parsed_R / (parsed_R + parsed_R_int))
+    else:
+        parsed_R_int = 0.0
+        calculated_V_init = 0.0
 
     st.session_state.applied_params = {
         "R": parsed_R,
         "C_micro": parsed_C,
-        "V0": parsed_V0,
+        "V_supply": parsed_V_supply,
+        "use_v_init": use_v_init_input,
+        "R_internal": parsed_R_int,
+        "V_init": calculated_V_init,
         "fix_axis": fix_axis,
         "num_points": num_points,
     }
@@ -266,14 +319,24 @@ if st.sidebar.button("적용하기", type="primary", use_container_width=True):
 # 현재 시뮬레이션에 실제 반영된 값 불러오기
 R = st.session_state.applied_params["R"]
 C_micro = st.session_state.applied_params["C_micro"]
-V0 = st.session_state.applied_params["V0"]
+V_supply = st.session_state.applied_params["V_supply"]
+use_v_init = st.session_state.applied_params["use_v_init"]
+R_internal = st.session_state.applied_params["R_internal"]
+V_init = st.session_state.applied_params["V_init"]
 fix_axis = st.session_state.applied_params["fix_axis"]
 num_points = st.session_state.applied_params["num_points"]
 
-# 현재 적용된 변수 값 안내
+# 현재 적용된 변수 값 안내 (내부저항 입력 적용 시에만 인가전압과 초기전압을 함께 표기)
+if use_v_init and R_internal > 0:
+    voltage_caption = (
+        f"인가전압: **{V_supply:g} V**, 초기전압: **{V_init:.4g} V** (내부저항 {R_internal:g} Ω)"
+    )
+else:
+    voltage_caption = f"인가전압: **{V_supply:g} V**"
+
 st.caption(
     f"현재 적용된 파라미터 — 저항 R: **{R:g} Ω**, 전기용량 C: **{C_micro:g} μF**, "
-    f"인가전압 V0: **{V0:g} V**, 시간축 고정: **{'ON (0~10초)' if fix_axis else 'OFF (0~5τ)'}**, "
+    f"{voltage_caption}, 시간축 고정: **{'ON (0~10초)' if fix_axis else 'OFF (0~5τ)'}**, "
     f"표 분할 개수: **{num_points}개**"
 )
 
@@ -285,10 +348,10 @@ tab_charge, tab_discharge, tab_csv = st.tabs([
 ])
 
 with tab_charge:
-    render_rc_tab("charging", R, C_micro, V0, fix_axis, num_points)
+    render_rc_tab("charging", R, C_micro, V_supply, V_init, use_v_init, fix_axis, num_points)
 
 with tab_discharge:
-    render_rc_tab("discharging", R, C_micro, V0, fix_axis, num_points)
+    render_rc_tab("discharging", R, C_micro, V_supply, V_init, use_v_init, fix_axis, num_points)
 
 with tab_csv:
-    render_csv_download_tab(R, C_micro, V0, fix_axis, num_points)
+    render_csv_download_tab(R, C_micro, V_supply, V_init, use_v_init, fix_axis, num_points)
