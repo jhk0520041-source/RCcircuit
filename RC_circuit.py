@@ -55,7 +55,7 @@ def configure_korean_font():
 configure_korean_font()
 
 # 1. 제목 및 안내 문구
-st.title("직류 RC회로 시뮬레이션")
+st.title("⚡직류 RC회로 시뮬레이션")
 st.caption("변수를 설정한 뒤, 아래 적용하기 버튼을 눌러 시뮬레이션을 확인하세요!")
 
 
@@ -486,7 +486,7 @@ def render_vc_ic_plots(
         )
         ax_i.scatter([tau_s], [ic_tau_val_ma], color="#CA8A04", zorder=5, s=30)
         ax_i.annotate(
-            f"{ic_tau_pct:.1f}% ({ic_tau_val_ma:.2f}mA)",
+            f"{ic_tau_pct:.1f}% ({ic_tau_val_ma:.3f}mA)",
             xy=(tau_s, ic_tau_val_ma),
             xytext=(tau_s * 1.12, ic_tau_val_ma),
             fontsize=8.5,
