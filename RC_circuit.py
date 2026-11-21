@@ -8,8 +8,10 @@ from matplotlib import font_manager
 
 st.set_page_config(page_title="직류 RC회로 시뮬레이션", layout="wide")
 
-def configure_korean_font():
-    """matplotlib에서 한글이 깨지지 않도록 사용 가능한 한글 폰트를 설정합니다."""
+
+@st.cache_resource(show_spinner=False)
+def load_korean_font_name() -> str | None:
+    """앱 실행 중 한 번만 시스템 폰트를 탐색·등록하고 사용할 한글 폰트 이름을 반환합니다."""
     try:
         font_manager._load_fontmanager(try_read_cache=False)
     except Exception:
@@ -26,22 +28,29 @@ def configure_korean_font():
     available = {f.name for f in font_manager.fontManager.ttflist}
     for font_name in candidate_fonts:
         if font_name in available:
-            plt.rcParams["font.family"] = font_name
-            break
-    else:
-        font_paths = [
-            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-            "C:/Windows/Fonts/malgun.ttf",
-            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-        ]
-        for path in font_paths:
-            if os.path.exists(path):
-                font_manager.fontManager.addfont(path)
-                prop = font_manager.FontProperties(fname=path)
-                plt.rcParams["font.family"] = prop.get_name()
-                break
+            return font_name
 
+    font_paths = [
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        "C:/Windows/Fonts/malgun.ttf",
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+    ]
+    for path in font_paths:
+        if os.path.exists(path):
+            font_manager.fontManager.addfont(path)
+            prop = font_manager.FontProperties(fname=path)
+            return prop.get_name()
+
+    return None
+
+
+def configure_korean_font():
+    """캐시된 폰트 이름을 matplotlib 전역 설정에 반영합니다."""
+    font_name = load_korean_font_name()
+    if font_name:
+        plt.rcParams["font.family"] = font_name
     plt.rcParams["axes.unicode_minus"] = False
+
 
 configure_korean_font()
 
@@ -413,6 +422,7 @@ def draw_circuit_schematic(
     st.pyplot(fig, use_container_width=True)
     plt.close(fig)
 
+
 def render_vc_ic_plots(
     t_arr: np.ndarray,
     vc_arr: np.ndarray,
@@ -476,7 +486,7 @@ def render_vc_ic_plots(
         )
         ax_i.scatter([tau_s], [ic_tau_val_ma], color="#CA8A04", zorder=5, s=30)
         ax_i.annotate(
-            f"{ic_tau_pct:.1f}% ({ic_tau_val_ma:.3f}mA)",
+            f"{ic_tau_pct:.1f}% ({ic_tau_val_ma:.2f}mA)",
             xy=(tau_s, ic_tau_val_ma),
             xytext=(tau_s * 1.12, ic_tau_val_ma),
             fontsize=8.5,
