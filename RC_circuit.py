@@ -11,6 +11,11 @@ st.set_page_config(page_title="직류 RC회로 시뮬레이션", layout="wide")
 
 def configure_korean_font():
     """matplotlib에서 한글이 깨지지 않도록 사용 가능한 한글 폰트를 설정합니다."""
+    try:
+        font_manager._load_fontmanager(try_read_cache=False)
+    except Exception:
+        pass
+
     candidate_fonts = [
         "Malgun Gothic",      # Windows
         "AppleGothic",       # macOS
