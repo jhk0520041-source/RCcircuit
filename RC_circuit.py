@@ -8,7 +8,6 @@ from matplotlib import font_manager
 
 st.set_page_config(page_title="직류 RC회로 시뮬레이션", layout="wide")
 
-
 def configure_korean_font():
     """matplotlib에서 한글이 깨지지 않도록 사용 가능한 한글 폰트를 설정합니다."""
     try:
@@ -17,9 +16,9 @@ def configure_korean_font():
         pass
 
     candidate_fonts = [
-        "Malgun Gothic",      # Windows
-        "AppleGothic",       # macOS
-        "NanumGothic",       # Linux / Nanum
+        "NanumGothic",
+        "Malgun Gothic",
+        "AppleGothic",
         "Noto Sans CJK KR",
         "Noto Sans KR",
         "UnDotum",
@@ -31,9 +30,9 @@ def configure_korean_font():
             break
     else:
         font_paths = [
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
             "C:/Windows/Fonts/malgun.ttf",
             "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
         ]
         for path in font_paths:
             if os.path.exists(path):
@@ -43,7 +42,6 @@ def configure_korean_font():
                 break
 
     plt.rcParams["axes.unicode_minus"] = False
-
 
 configure_korean_font()
 
