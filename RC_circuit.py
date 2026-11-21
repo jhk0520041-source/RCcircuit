@@ -476,7 +476,7 @@ def render_vc_ic_plots(
         )
         ax_i.scatter([tau_s], [ic_tau_val_ma], color="#CA8A04", zorder=5, s=30)
         ax_i.annotate(
-            f"{ic_tau_pct:.1f}% ({ic_tau_val_ma:.2f}mA)",
+            f"{ic_tau_pct:.1f}% ({ic_tau_val_ma:.3f}mA)",
             xy=(tau_s, ic_tau_val_ma),
             xytext=(tau_s * 1.12, ic_tau_val_ma),
             fontsize=8.5,
